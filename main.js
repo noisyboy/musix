@@ -91,6 +91,65 @@ const WEATHER_ACCENTS = {
     storm: ['92, 150, 224', '188, 221, 255']
 };
 
+const WEATHER_BACKGROUNDS = {
+    clear: [
+        'https://images.unsplash.com/photo-1500534623283-312aade485b7?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1470252649378-9c29740c9fa8?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1497250681960-ef046c08a56e?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1501854140801-50d01698950b?auto=format&fit=crop&w=2200&q=88'
+    ],
+    cloudy: [
+        'https://images.unsplash.com/photo-1534088568595-a066f410bcda?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1534274988757-a28bf1a57c17?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1499346030926-9a72daac6c63?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1519692933481-e162a57d6721?auto=format&fit=crop&w=2200&q=88'
+    ],
+    fog: [
+        'https://images.unsplash.com/photo-1487621167305-5d248087c724?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1516912481808-3406841bd33c?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1485236715568-ddc5ee6ca227?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1483664852095-d6cc6870702d?auto=format&fit=crop&w=2200&q=88'
+    ],
+    rain: [
+        'https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1515694346937-94d85e41e6f0?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1428592953211-077101b2021b?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1501691223387-dd0500403074?auto=format&fit=crop&w=2200&q=88'
+    ],
+    snow: [
+        'https://images.unsplash.com/photo-1517299321609-52687d1bc55a?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1483664852095-d6cc6870702d?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1453306458620-5bbef13a5bca?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1548777123-e216912df7d8?auto=format&fit=crop&w=2200&q=88'
+    ],
+    storm: [
+        'https://images.unsplash.com/photo-1461511669078-d46bf351cd6e?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1605727216801-e27ce1d0cc28?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1527482937786-6b1f7f1ebc8b?auto=format&fit=crop&w=2200&q=88',
+        'https://images.unsplash.com/photo-1594156596782-656c93e4d504?auto=format&fit=crop&w=2200&q=88'
+    ]
+};
+
+let weatherBackgroundTimer;
+let lastWeatherBackground = '';
+
+function rotateWeatherBackground(scene) {
+    const images = WEATHER_BACKGROUNDS[scene] || WEATHER_BACKGROUNDS.cloudy;
+    const availableImages = images.filter(image => image !== lastWeatherBackground);
+    lastWeatherBackground = availableImages[Math.floor(Math.random() * availableImages.length)];
+    document.body.style.setProperty('--weather-image', `url("${lastWeatherBackground}")`);
+    document.body.classList.remove('weather-background-transition');
+    requestAnimationFrame(() => {
+        document.body.classList.add('weather-background-transition');
+    });
+}
+
+function startWeatherBackgroundRotation(scene) {
+    clearInterval(weatherBackgroundTimer);
+    rotateWeatherBackground(scene);
+    weatherBackgroundTimer = setInterval(() => rotateWeatherBackground(scene), 5 * 60 * 1000);
+}
+
 function getWeatherScene(weatherCode) {
     return WEATHER_SCENES.find(scene => scene.codes.includes(weatherCode))?.name || 'cloudy';
 }
@@ -154,6 +213,7 @@ async function updateWeatherBackground() {
         const scene = getWeatherScene(weather.current.weather_code);
         document.body.dataset.weather = scene;
         setWeatherAccent(scene);
+        startWeatherBackgroundRotation(scene);
 
         if (!location.city) {
             const placeResponse = await fetch(
