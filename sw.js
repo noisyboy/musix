@@ -1,7 +1,10 @@
-const CACHE_NAME = 'cadmium-cache-v1';
+const CACHE_NAME = 'cadmium-cache-v7';
 const ASSETS_TO_CACHE = [
   './index.html',
+  './main.js',
+  './style.css',
   './manifest.json',
+  './sw.js',
   './icon-192.png',
   './icon-512.png'
 ];

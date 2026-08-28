@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <link rel="manifest" href="manifest.json">
-  <script src="main.js"></script>
+    <script src="main.js" defer></script>
 <meta name="theme-color" content="#121212">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
@@ -16,10 +16,6 @@
 <body>
 
     <div class="glass-card" id="main-card">
-        <div class="brand-logo" title="Cadmium (Cd - 48)">
-        <span class="brand-number">48</span>
-        <span class="brand-symbol">Cd</span>
-    </div>
         <!-- 3-Slide Swipeable Viewport -->
         <div class="carousel-viewport" id="carousel">
             
@@ -35,6 +31,7 @@
                 <svg viewBox="0 0 24 24">
                     <path d="M9 18V5l12-2v13M9 9l12-2M9 18c0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3 3 1.34 3 3zm12-2c0 1.66-1.34 3-3 3s-3-1.34-3-3 1.34-3 3-3 3 1.34 3 3z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
                 </svg>
+                <div class="art-glass-overlay" aria-hidden="true"></div>
             </div>
 
             <!-- Slide 2 (Right): Playlist Drawer -->
@@ -42,10 +39,30 @@
      <!-- Slide 3 (Right): Direct Video Queues -->
 <div class="playlist-drawer">
     <div class="playlist-drawer-title">Select Playlist</div>
-    <button class="playlist-chip active" onclick="switchPlaylist(MUSIC_DB.default, this)">Hindi-Indi</button>
-    <button class="playlist-chip" onclick="switchPlaylist(MUSIC_DB.hiphop_classics, this)">Hip Hop Classics</button>
-    <button class="playlist-chip" onclick="switchPlaylist(MUSIC_DB.violin_classics, this)">Violin Classics</button>
-    <button class="playlist-chip" onclick="switchPlaylist(MUSIC_DB.lofi_chill, this)">Lofi Chillhop</button>
+    <form class="custom-playlist-form" onsubmit="return addCustomPlaylist(event)">
+        <input id="custom-playlist-input" type="text" inputmode="url" autocomplete="off" placeholder="Paste YouTube playlist URL" aria-label="YouTube playlist URL or ID">
+        <button type="submit" aria-label="Add playlist" title="Add playlist">+</button>
+    </form>
+    <div class="playlist-feedback" id="playlist-feedback" role="status" aria-live="polite"></div>
+    <div id="custom-playlists"></div>
+    <div id="default-playlists">
+        <div class="playlist-row" data-playlist-id="PLJkOl8HwYL9E">
+            <button class="playlist-chip playlist-select active" type="button" onclick="switchPlaylist(MUSIC_DB.default, this)">Hindi-Indi</button>
+            <button class="playlist-remove" type="button" aria-label="Remove Hindi-Indi playlist" title="Remove playlist" onclick="removePlaylist('PLJkOl8HwYL9E', true)">x</button>
+        </div>
+        <div class="playlist-row" data-playlist-id="PLxA687tYuMWgEVasBziZoZ1Bk7JLnu-Rf">
+            <button class="playlist-chip playlist-select" type="button" onclick="switchPlaylist(MUSIC_DB.hiphop_classics, this)">Hip Hop Classics</button>
+            <button class="playlist-remove" type="button" aria-label="Remove Hip Hop Classics playlist" title="Remove playlist" onclick="removePlaylist('PLxA687tYuMWgEVasBziZoZ1Bk7JLnu-Rf', true)">x</button>
+        </div>
+        <div class="playlist-row" data-playlist-id="PLTu5Y9SG5tGys9gUErycyqW9sD77qkfkv">
+            <button class="playlist-chip playlist-select" type="button" onclick="switchPlaylist(MUSIC_DB.violin_classics, this)">Violin Classics</button>
+            <button class="playlist-remove" type="button" aria-label="Remove Violin Classics playlist" title="Remove playlist" onclick="removePlaylist('PLTu5Y9SG5tGys9gUErycyqW9sD77qkfkv', true)">x</button>
+        </div>
+        <div class="playlist-row" data-playlist-id="PLOzDu-MXXLliO9fBNZOQTBDddoA3FzZUo">
+            <button class="playlist-chip playlist-select" type="button" onclick="switchPlaylist(MUSIC_DB.lofi_chill, this)">Lofi Chillhop</button>
+            <button class="playlist-remove" type="button" aria-label="Remove Lofi Chillhop playlist" title="Remove playlist" onclick="removePlaylist('PLOzDu-MXXLliO9fBNZOQTBDddoA3FzZUo', true)">x</button>
+        </div>
+    </div>
 </div>
             </div>
 
@@ -67,7 +84,7 @@
         <!-- Progress -->
         <div class="progress-container">
             <span id="current-time">0:00</span>
-            <div class="progress-bar-bg" id="progress-bg">
+            <div class="progress-bar-bg" id="progress-bg" role="slider" tabindex="0" aria-label="Seek through track" aria-valuemin="0" aria-valuemax="0" aria-valuenow="0" aria-valuetext="0:00">
                 <div class="progress-bar-fill" id="progress-fill"></div>
             </div>
             <span id="total-time">0:00</span>
@@ -75,24 +92,24 @@
 
         <!-- Playback Controls -->
         <div class="playback-controls">
-            <button class="icon-btn" id="btn-shuffle" onclick="toggleShuffle()">
+            <button class="icon-btn" id="btn-shuffle" type="button" aria-label="Shuffle playlist" aria-pressed="false" title="Shuffle playlist" onclick="toggleShuffle()">
                 <svg viewBox="0 0 24 24"><path d="M10.59 9.17L5.41 4 4 5.41l5.17 5.17 1.42-1.41zM14.5 4l2.04 2.04L4 18.59 5.41 20 17.96 7.46 20 9.5V4h-5.5zm.33 9.41l-1.41 1.41 3.13 3.13L14.5 20H20v-5.5l-2.04 2.04-3.13-3.13z"/></svg>
             </button>
             
-            <button class="icon-btn" onclick="player.previousVideo()">
+            <button class="icon-btn" type="button" aria-label="Previous track" title="Previous track" onclick="player.previousVideo()">
                 <svg viewBox="0 0 24 24"><path d="M6 6h2v12H6zm3.5 6l8.5 6V6z"/></svg>
             </button>
             
-            <button class="icon-btn play-pause-btn" id="play-pause-btn" onclick="togglePlayPause()">
+            <button class="icon-btn play-pause-btn" id="play-pause-btn" type="button" aria-label="Play or pause" title="Play or pause" onclick="togglePlayPause()">
                 <svg id="icon-play" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
                 <svg id="icon-pause" viewBox="0 0 24 24" style="display: none;"><path d="M6 19h4V5H6v14zm8-14v14h4V5h-4z"/></svg>
             </button>
             
-            <button class="icon-btn" onclick="player.nextVideo()">
+            <button class="icon-btn" type="button" aria-label="Next track" title="Next track" onclick="player.nextVideo()">
                 <svg viewBox="0 0 24 24"><path d="M6 18l8.5-6L6 6v12zM16 6v12h2V6h-2z"/></svg>
             </button>
 
-            <button class="icon-btn" id="btn-loop" onclick="toggleLoop()">
+            <button class="icon-btn" id="btn-loop" type="button" aria-label="Change repeat mode" aria-pressed="false" title="Change repeat mode" onclick="toggleLoop()">
                 <svg id="icon-loop" viewBox="0 0 24 24"><path d="M12 4V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
                 <svg id="icon-loop-one" viewBox="0 0 24 24" style="display: none;"><path d="M13 15V9h-1l-2 1.5v1.25l2-1.5h1V15h1zm-1-11V1L8 5l4 4V6c3.31 0 6 2.69 6 6 0 1.01-.25 1.97-.7 2.8l1.46 1.46C19.54 15.03 20 13.57 20 12c0-4.42-3.58-8-8-8zm0 14c-3.31 0-6-2.69-6-6 0-1.01.25-1.97.7-2.8L5.24 7.74C4.46 8.97 4 10.43 4 12c0 4.42 3.58 8 8 8v3l4-4-4-4v3z"/></svg>
             </button>

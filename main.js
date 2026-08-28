@@ -58,6 +58,244 @@ let lastFetchedTitle = "";
 // Parsed synced lyrics cache: [{ time: seconds, text: string }]
 let syncedLyrics = [];
 let activeLyricIndex = -1;
+let lyricsRequestId = 0;
+let isSeeking = false;
+
+function getSongName(rawTitle) {
+    const title = String(rawTitle || 'Playing Track')
+        .replace(/\s+/g, ' ')
+        .replace(/^\s*[\[(].*?[\])]\s*/g, '')
+        .trim();
+
+    return title
+        .replace(/\s*(?:\||-|–|—|•|:)\s*(?:official|music|audio|video|lyrics?|lyric|visualizer|remix|4k|8k|hd|full song|feat\.?|ft\.?).*$/i, '')
+        .replace(/\s*\((?:official|music|audio|video|lyrics?|visualizer|remix|4k|8k|hd).*?\)\s*$/i, '')
+        .trim() || title;
+}
+
+const WEATHER_SCENES = [
+    { name: 'clear', codes: [0, 1] },
+    { name: 'cloudy', codes: [2, 3] },
+    { name: 'fog', codes: [45, 48] },
+    { name: 'rain', codes: [51, 53, 55, 56, 57, 61, 63, 65, 66, 67, 80, 81, 82] },
+    { name: 'snow', codes: [71, 73, 75, 77, 85, 86] },
+    { name: 'storm', codes: [95, 96, 99] }
+];
+
+const WEATHER_ACCENTS = {
+    clear: ['236, 190, 112', '255, 229, 170'],
+    cloudy: ['155, 188, 197', '214, 231, 232'],
+    fog: ['174, 190, 180', '225, 236, 222'],
+    rain: ['82, 184, 164', '173, 244, 210'],
+    snow: ['150, 210, 238', '222, 246, 255'],
+    storm: ['92, 150, 224', '188, 221, 255']
+};
+
+function getWeatherScene(weatherCode) {
+    return WEATHER_SCENES.find(scene => scene.codes.includes(weatherCode))?.name || 'cloudy';
+}
+
+function setWeatherAccent(scene) {
+    const mainCard = document.getElementById('main-card');
+    const [accent, brightAccent] = WEATHER_ACCENTS[scene] || WEATHER_ACCENTS.rain;
+    if (!mainCard) return;
+    mainCard.style.setProperty('--background-accent', accent);
+    mainCard.style.setProperty('--background-accent-bright', brightAccent);
+    mainCard.style.setProperty('--ui-accent', `rgb(${accent})`);
+    mainCard.style.setProperty('--ui-accent-bright', `rgb(${brightAccent})`);
+}
+
+function getDeviceLocation() {
+    return new Promise((resolve, reject) => {
+        if (!navigator.geolocation) {
+            reject(new Error('Geolocation is unavailable'));
+            return;
+        }
+
+        navigator.geolocation.getCurrentPosition(
+            position => resolve({
+                latitude: position.coords.latitude,
+                longitude: position.coords.longitude
+            }),
+            reject,
+            { enableHighAccuracy: false, timeout: 7000, maximumAge: 900000 }
+        );
+    });
+}
+
+async function getIpLocation() {
+    try {
+        const response = await fetch('https://ipapi.co/json/');
+        if (!response.ok) throw new Error('Primary IP location lookup failed');
+        const location = await response.json();
+        return { latitude: location.latitude, longitude: location.longitude, city: location.city };
+    } catch (error) {
+        const response = await fetch('https://ipwho.is/');
+        if (!response.ok) throw new Error('IP location lookup failed');
+        const location = await response.json();
+        return { latitude: location.latitude, longitude: location.longitude, city: location.city };
+    }
+}
+
+async function updateWeatherBackground() {
+    try {
+        let location;
+        try {
+            location = await getDeviceLocation();
+        } catch (error) {
+            location = await getIpLocation();
+        }
+
+        const weatherResponse = await fetch(
+            `https://api.open-meteo.com/v1/forecast?latitude=${location.latitude}&longitude=${location.longitude}&current=weather_code,is_day&timezone=auto`
+        );
+        if (!weatherResponse.ok) throw new Error('Weather lookup failed');
+        const weather = await weatherResponse.json();
+        const scene = getWeatherScene(weather.current.weather_code);
+        document.body.dataset.weather = scene;
+        setWeatherAccent(scene);
+
+        if (!location.city) {
+            const placeResponse = await fetch(
+                `https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${location.latitude}&lon=${location.longitude}`
+            );
+            if (placeResponse.ok) {
+                const place = await placeResponse.json();
+                location.city = place.address?.city || place.address?.town || place.address?.village;
+            }
+        }
+
+        if (location.city) {
+            document.body.dataset.city = location.city;
+            document.title = `${location.city} - Cadmium Music Player`;
+        }
+    } catch (error) {
+        document.body.dataset.weather = 'rain';
+        setWeatherAccent('rain');
+        console.warn('Dynamic weather background unavailable:', error);
+    }
+}
+
+function setArtworkAccent(image) {
+    const mainCard = document.getElementById('main-card');
+    if (!mainCard) return;
+
+    try {
+        const canvas = document.createElement('canvas');
+        canvas.width = 1;
+        canvas.height = 1;
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        context.drawImage(image, 0, 0, 1, 1);
+        const [red, green, blue] = context.getImageData(0, 0, 1, 1).data;
+        mainCard.style.setProperty('--art-accent', `${red}, ${green}, ${blue}`);
+        const brightRed = Math.round(red + (255 - red) * 0.42);
+        const brightGreen = Math.round(green + (255 - green) * 0.42);
+        const brightBlue = Math.round(blue + (255 - blue) * 0.42);
+        mainCard.style.setProperty('--art-accent-bright', `${brightRed}, ${brightGreen}, ${brightBlue}`);
+    } catch (error) {
+        mainCard.style.setProperty('--art-accent', '145, 173, 205');
+        mainCard.style.setProperty('--art-accent-bright', '191, 207, 226');
+    }
+}
+
+function extractPlaylistId(value) {
+    const input = value.trim();
+    if (!input) return null;
+
+    try {
+        const url = new URL(input);
+        const playlistId = url.searchParams.get('list');
+        if (playlistId) return playlistId;
+    } catch (error) {
+        // The input may be a playlist ID instead of a URL.
+    }
+
+    return /^[A-Za-z0-9_-]{10,}$/.test(input) ? input : null;
+}
+
+function getSavedPlaylists() {
+    try {
+        return JSON.parse(localStorage.getItem('cadmium-playlists') || '[]');
+    } catch (error) {
+        return [];
+    }
+}
+
+function getHiddenPlaylists() {
+    try {
+        return JSON.parse(localStorage.getItem('cadmium-hidden-playlists') || '[]');
+    } catch (error) {
+        return [];
+    }
+}
+
+function saveHiddenPlaylists(playlists) {
+    localStorage.setItem('cadmium-hidden-playlists', JSON.stringify(playlists));
+}
+
+function renderCustomPlaylists() {
+    const container = document.getElementById('custom-playlists');
+    if (!container) return;
+
+    container.replaceChildren(...getSavedPlaylists().map(playlist => {
+        const row = document.createElement('div');
+        row.className = 'playlist-row';
+        const button = document.createElement('button');
+        button.className = 'playlist-chip playlist-select custom-playlist-chip';
+        button.type = 'button';
+        button.textContent = playlist.name;
+        button.title = `Play ${playlist.name}`;
+        button.onclick = () => switchPlaylist(playlist.id, button);
+        const removeButton = document.createElement('button');
+        removeButton.className = 'playlist-remove';
+        removeButton.type = 'button';
+        removeButton.setAttribute('aria-label', `Remove ${playlist.name}`);
+        removeButton.title = 'Remove playlist';
+        removeButton.textContent = 'x';
+        removeButton.onclick = () => removePlaylist(playlist.id, false);
+        row.append(button, removeButton);
+        return row;
+    }));
+}
+
+function removePlaylist(playlistId, isDefault) {
+    if (isDefault) {
+        saveHiddenPlaylists([...new Set([...getHiddenPlaylists(), playlistId])]);
+        const row = document.querySelector(`.playlist-row[data-playlist-id="${playlistId}"]`);
+        row?.remove();
+    } else {
+        const savedPlaylists = getSavedPlaylists().filter(playlist => playlist.id !== playlistId);
+        localStorage.setItem('cadmium-playlists', JSON.stringify(savedPlaylists));
+        renderCustomPlaylists();
+    }
+}
+
+function restoreHiddenDefaults() {
+    document.querySelectorAll('#default-playlists .playlist-row').forEach(row => {
+        if (getHiddenPlaylists().includes(row.dataset.playlistId)) row.remove();
+    });
+}
+
+function addCustomPlaylist(event) {
+    event.preventDefault();
+    const input = document.getElementById('custom-playlist-input');
+    const feedback = document.getElementById('playlist-feedback');
+    const playlistId = extractPlaylistId(input?.value || '');
+
+    if (!playlistId) {
+        if (feedback) feedback.textContent = 'Enter a valid YouTube playlist URL or ID.';
+        return false;
+    }
+
+    const savedPlaylists = getSavedPlaylists().filter(playlist => playlist.id !== playlistId);
+    const name = `My playlist ${savedPlaylists.length + 1}`;
+    savedPlaylists.unshift({ id: playlistId, name });
+    localStorage.setItem('cadmium-playlists', JSON.stringify(savedPlaylists.slice(0, 8)));
+    renderCustomPlaylists();
+    input.value = '';
+    if (feedback) feedback.textContent = `${name} added.`;
+    return false;
+}
 
 const LYRICS_OFFSET = 0.2; // Timing offset in seconds
 const carousel = document.getElementById('carousel');
@@ -65,18 +303,22 @@ const carousel = document.getElementById('carousel');
 // Center carousel on the album art (Slide index 1)
 function resetCarouselToCenter(smooth = false) {
     if (carousel) {
-        carousel.scrollTo({ left: 240, behavior: smooth ? 'smooth' : 'auto' });
+        carousel.scrollTo({ left: carousel.clientWidth, behavior: smooth ? 'smooth' : 'auto' });
     }
 }
 
 window.addEventListener('DOMContentLoaded', () => {
     resetCarouselToCenter(false);
+    updateWeatherBackground();
+    renderCustomPlaylists();
+    restoreHiddenDefaults();
 });
 
 // Carousel Indicator Dots Tracking
 if (carousel) {
     carousel.addEventListener('scroll', () => {
-        const index = Math.round(carousel.scrollLeft / 240);
+        const slideWidth = carousel.clientWidth || 240;
+        const index = Math.round(carousel.scrollLeft / slideWidth);
         const dot0 = document.getElementById('dot-0');
         const dot1 = document.getElementById('dot-1');
         const dot2 = document.getElementById('dot-2');
@@ -148,7 +390,7 @@ function onPlayerStateChange(event) {
         if (pauseIcon) pauseIcon.style.display = 'block';
         
         const videoData = player.getVideoData();
-        const title = videoData.title || "Playing Track";
+        const title = getSongName(videoData.title);
         
         const titleEl = document.getElementById('track-title');
         if (titleEl) titleEl.innerText = title;
@@ -157,7 +399,14 @@ function onPlayerStateChange(event) {
         if (videoId) {
             const artContainer = document.getElementById('album-art-container');
             if (artContainer) {
-                artContainer.innerHTML = `<img src="https://img.youtube.com/vi/${videoId}/hqdefault.jpg" alt="Album Art">`;
+                const artwork = document.createElement('img');
+                const glassOverlay = artContainer.querySelector('.art-glass-overlay');
+                artwork.src = `https://img.youtube.com/vi/${videoId}/hqdefault.jpg`;
+                artwork.alt = 'Album Art';
+                artwork.crossOrigin = 'anonymous';
+                artwork.addEventListener('load', () => setArtworkAccent(artwork), { once: true });
+                artContainer.replaceChildren(artwork);
+                if (glassOverlay) artContainer.appendChild(glassOverlay);
             }
         }
 const artUrl = videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : 'icon-512.png';
@@ -188,7 +437,7 @@ function onPlayerError(event) {
 
 // Universal switch function for all playlist chips
 function switchPlaylist(source, buttonElement) {
-    document.querySelectorAll('.playlist-chip').forEach(btn => btn.classList.remove('active'));
+    document.querySelectorAll('.playlist-select').forEach(btn => btn.classList.remove('active'));
     if (buttonElement) buttonElement.classList.add('active');
 
     currentSource = source;
@@ -227,6 +476,7 @@ function parseLRC(lrcText) {
 async function fetchLyrics(rawTitle) {
     const container = document.getElementById('lyrics-container');
     if (!container) return;
+    const requestId = ++lyricsRequestId;
 
     container.innerHTML = '<div id="lyrics-content" style="opacity: 0.6;">Searching lyrics...</div>';
     syncedLyrics = [];
@@ -239,17 +489,28 @@ async function fetchLyrics(rawTitle) {
 
     try {
         const res = await fetch(`https://lrclib.net/api/search?q=${encodeURIComponent(cleanedTitle)}`);
+        if (!res.ok) throw new Error(`Lyrics request failed: ${res.status}`);
         const data = await res.json();
+
+        if (requestId !== lyricsRequestId) return;
         
         if (data && data.length > 0) {
             const hit = data[0];
             if (hit.syncedLyrics) {
                 syncedLyrics = parseLRC(hit.syncedLyrics);
-                container.innerHTML = syncedLyrics
-                    .map((l, i) => `<div class="lyric-line" id="lyric-${i}">${l.text}</div>`)
-                    .join('');
+                container.replaceChildren(...syncedLyrics.map((lyric, index) => {
+                    const line = document.createElement('div');
+                    line.className = 'lyric-line';
+                    line.id = `lyric-${index}`;
+                    line.textContent = lyric.text;
+                    return line;
+                }));
             } else if (hit.plainLyrics) {
-                container.innerHTML = `<div style="white-space: pre-wrap; opacity: 0.8;">${hit.plainLyrics}</div>`;
+                const plainLyrics = document.createElement('div');
+                plainLyrics.style.whiteSpace = 'pre-wrap';
+                plainLyrics.style.opacity = '0.8';
+                plainLyrics.textContent = hit.plainLyrics;
+                container.replaceChildren(plainLyrics);
             } else {
                 container.innerHTML = '<div style="opacity: 0.6;">No lyrics found for this track.</div>';
             }
@@ -313,7 +574,10 @@ function toggleShuffle() {
     isShuffleOn = !isShuffleOn;
     player.setShuffle(isShuffleOn);
     const btn = document.getElementById('btn-shuffle');
-    if (btn) btn.classList.toggle('active', isShuffleOn);
+    if (btn) {
+        btn.classList.toggle('active', isShuffleOn);
+        btn.setAttribute('aria-pressed', String(isShuffleOn));
+    }
 }
 
 function toggleLoop() {
@@ -325,17 +589,26 @@ function toggleLoop() {
     
     if (loopMode === 0) {
         player.setLoop(false);
-        if (btn) btn.classList.remove('active');
+        if (btn) {
+            btn.classList.remove('active');
+            btn.setAttribute('aria-pressed', 'false');
+        }
         if (iconLoop) iconLoop.style.display = 'block';
         if (iconLoopOne) iconLoopOne.style.display = 'none';
     } else if (loopMode === 1) {
         player.setLoop(true);
-        if (btn) btn.classList.add('active');
+        if (btn) {
+            btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
+        }
         if (iconLoop) iconLoop.style.display = 'block';
         if (iconLoopOne) iconLoopOne.style.display = 'none';
     } else if (loopMode === 2) {
         player.setLoop(true);
-        if (btn) btn.classList.add('active');
+        if (btn) {
+            btn.classList.add('active');
+            btn.setAttribute('aria-pressed', 'true');
+        }
         if (iconLoop) iconLoop.style.display = 'none';
         if (iconLoopOne) iconLoopOne.style.display = 'block';
     }
@@ -351,6 +624,8 @@ function updateProgressBar() {
     if (player && player.getCurrentTime && player.getDuration) {
         const current = player.getCurrentTime();
         const duration = player.getDuration();
+
+        if (isSeeking) return;
         
         syncLyricsScroll(current);
 
@@ -365,29 +640,79 @@ function updateProgressBar() {
         if (curTimeEl) curTimeEl.innerText = formatTime(current);
         if (totTimeEl) totTimeEl.innerText = formatTime(duration);
         
-        const percentage = duration > 0 ? (current / duration) * 100 : 0;
+        const percentage = duration > 0 ? Math.max(0, Math.min(100, (current / duration) * 100)) : 0;
         
         const progFill = document.getElementById('progress-fill');
         if (progFill) progFill.style.width = `${percentage}%`;
+
+        const progressBg = document.getElementById('progress-bg');
+        if (progressBg) {
+            progressBg.setAttribute('aria-valuemax', String(Math.round(duration)));
+            progressBg.setAttribute('aria-valuenow', String(Math.round(current)));
+            progressBg.setAttribute('aria-valuetext', formatTime(current));
+        }
         
-        const mainCard = document.getElementById('main-card');
-        if (mainCard) mainCard.style.setProperty('--fill-level', `${percentage}%`);
     }
 }
 
 const progressBg = document.getElementById('progress-bg');
 if (progressBg) {
-    progressBg.addEventListener('click', function(e) {
-        if (player && player.getDuration) {
-            const rect = this.getBoundingClientRect();
-            const clickX = e.clientX - rect.left;
-            const percentage = clickX / rect.width;
-            const seekTime = percentage * player.getDuration();
-            
-            player.seekTo(seekTime, true);
-            const mainCard = document.getElementById('main-card');
-            if (mainCard) mainCard.style.setProperty('--fill-level', `${percentage * 100}%`);
-            syncLyricsScroll(seekTime);
-        }
+    function seekToClientPosition(clientX) {
+        if (!player || !player.getDuration) return;
+
+        const duration = player.getDuration();
+        if (!Number.isFinite(duration) || duration <= 0) return;
+
+        const rect = progressBg.getBoundingClientRect();
+        const percentage = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+        const seekTime = percentage * duration;
+        player.seekTo(seekTime, true);
+
+        const percentageValue = percentage * 100;
+        const progFill = document.getElementById('progress-fill');
+        if (progFill) progFill.style.width = `${percentageValue}%`;
+        progressBg.setAttribute('aria-valuemax', String(Math.round(duration)));
+        progressBg.setAttribute('aria-valuenow', String(Math.round(seekTime)));
+        progressBg.setAttribute('aria-valuetext', formatTime(seekTime));
+
+        const curTimeEl = document.getElementById('current-time');
+        if (curTimeEl) curTimeEl.innerText = formatTime(seekTime);
+        syncLyricsScroll(seekTime);
+    }
+
+    progressBg.addEventListener('pointerdown', (event) => {
+        isSeeking = true;
+        progressBg.setPointerCapture(event.pointerId);
+        seekToClientPosition(event.clientX);
+    });
+
+    progressBg.addEventListener('pointermove', (event) => {
+        if (isSeeking) seekToClientPosition(event.clientX);
+    });
+
+    progressBg.addEventListener('pointerup', (event) => {
+        seekToClientPosition(event.clientX);
+        isSeeking = false;
+        progressBg.releasePointerCapture(event.pointerId);
+    });
+
+    progressBg.addEventListener('pointercancel', () => {
+        isSeeking = false;
+    });
+
+    progressBg.addEventListener('keydown', (event) => {
+        if (!player || !player.getDuration || !player.getCurrentTime) return;
+
+        const duration = player.getDuration();
+        const current = player.getCurrentTime();
+        let seekTime;
+        if (event.key === 'ArrowLeft') seekTime = current - 5;
+        else if (event.key === 'ArrowRight') seekTime = current + 5;
+        else if (event.key === 'Home') seekTime = 0;
+        else if (event.key === 'End') seekTime = duration;
+        else return;
+
+        event.preventDefault();
+        seekToClientPosition(progressBg.getBoundingClientRect().left + (Math.max(0, Math.min(duration, seekTime)) / duration) * progressBg.getBoundingClientRect().width);
     });
 }
