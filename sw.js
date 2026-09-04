@@ -1,4 +1,4 @@
-const CACHE_NAME = 'cadmium-cache-v7';
+const CACHE_NAME = 'cadmium-cache-v8';
 const ASSETS_TO_CACHE = [
   './index.html',
   './main.js',
@@ -34,7 +34,20 @@ self.addEventListener('fetch', (event) => {
   if (event.request.url.includes('youtube.com') || event.request.url.includes('lrclib.net')) {
     return;
   }
+
+  if (event.request.method !== 'GET' || new URL(event.request.url).origin !== self.location.origin) {
+    return;
+  }
+
   event.respondWith(
-    caches.match(event.request).then((response) => response || fetch(event.request))
+    fetch(event.request)
+      .then((response) => {
+        if (response.ok) {
+          const responseCopy = response.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseCopy));
+        }
+        return response;
+      })
+      .catch(() => caches.match(event.request))
   );
 });
