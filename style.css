@@ -39,20 +39,32 @@
             content: '';
             position: fixed;
             inset: 0;
-            z-index: -2;
+            z-index: -3;
             background:
                 linear-gradient(135deg, rgba(4, 12, 15, 0.74), rgba(8, 14, 19, 0.52)),
                 var(--weather-image, url('https://images.unsplash.com/photo-1448375240586-882707db888b?auto=format&fit=crop&w=2200&q=88')) center / cover no-repeat;
             transform: translateZ(0);
         }
 
-        body.weather-background-transition::after {
-            animation: weatherBackgroundFade 1.4s ease both;
+        .weather-background-layer {
+            position: fixed;
+            inset: 0;
+            z-index: -2;
+            background-position: center;
+            background-size: cover;
+            background-repeat: no-repeat;
+            clip-path: circle(0% at 0 0);
+            pointer-events: none;
+            transform: translateZ(0);
         }
 
-        @keyframes weatherBackgroundFade {
-            from { opacity: 0.12; }
-            to { opacity: 1; }
+        .weather-background-layer.weather-background-reveal {
+            animation: weatherBackgroundReveal 1.8s cubic-bezier(0.22, 0.61, 0.36, 1) both;
+        }
+
+        @keyframes weatherBackgroundReveal {
+            from { clip-path: circle(0% at 0 0); }
+            to { clip-path: circle(150% at 0 0); }
         }
 
         body[data-weather="clear"]::after {
@@ -108,6 +120,75 @@
             to { transform: translate3d(24px, 36px, 0); }
         }
 
+        .player-shell {
+            width: min(320px, 100%);
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 14px;
+        }
+
+        .clock-panel,
+        .volume-panel {
+            width: 100%;
+            box-sizing: border-box;
+        }
+
+        .clock-panel {
+            min-height: 48px;
+            padding: 0 8px 10px;
+            display: grid;
+            grid-template-columns: 1fr auto;
+            grid-template-areas:
+                'label clock'
+                'date clock';
+            align-items: end;
+            column-gap: 12px;
+            position: relative;
+        }
+
+        .clock-panel::after {
+            content: '';
+            position: absolute;
+            left: 5%;
+            right: 5%;
+            bottom: 0;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, rgba(var(--background-accent-bright), 0.42) 25%, rgba(255, 255, 255, 0.26) 50%, rgba(var(--background-accent-bright), 0.42) 75%, transparent);
+            opacity: 0.72;
+        }
+
+        .clock-label {
+            grid-area: label;
+            display: block;
+            color: var(--ui-accent-bright);
+            font-size: 9px;
+            font-weight: 700;
+            letter-spacing: 2.5px;
+            text-align: left;
+        }
+
+        .live-clock {
+            grid-area: clock;
+            display: block;
+            color: var(--text-primary);
+            font-family: 'Courier New', monospace;
+            font-size: 22px;
+            font-weight: 700;
+            letter-spacing: 2px;
+            text-shadow: 0 0 18px rgba(var(--background-accent-bright), 0.28);
+        }
+
+        .live-date {
+            grid-area: date;
+            display: block;
+            color: var(--text-secondary);
+            font-size: 10px;
+            letter-spacing: 0.8px;
+            text-transform: uppercase;
+            text-align: left;
+        }
+
         /* The main curved glass card */
         .glass-card {
             width: min(320px, 100%);
@@ -152,8 +233,8 @@
         }
 
         @keyframes glassRefraction {
-            from { transform: translate3d(-2%, -1%, 0) rotate(-2deg) scale(1.02); }
-            to { transform: translate3d(2%, 1%, 0) rotate(2deg) scale(1.06); }
+            from { opacity: 0.14; }
+            to { opacity: 0.22; }
         }
 
         @keyframes borderPulse {
@@ -178,6 +259,8 @@
 
         @media (prefers-reduced-motion: reduce) {
             body::before { animation: none; }
+            .weather-background-layer { clip-path: none; }
+            .weather-background-layer.weather-background-reveal { animation: none; }
             .glass-card::before { animation: none; }
             .glass-card::after { animation: none; opacity: 0.7; }
         }
@@ -241,8 +324,8 @@
         }
 
         @keyframes artworkShimmer {
-            from { opacity: 0.58; transform: translateX(-1%); }
-            to { opacity: 0.88; transform: translateX(1%); }
+            from { opacity: 0.58; }
+            to { opacity: 0.78; }
         }
 
         .carousel-slide svg {
@@ -598,6 +681,38 @@
             height: 52px;
             background: linear-gradient(145deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.08));
             box-shadow: inset 2px 2px 5px rgba(255, 255, 255, 0.28), inset -4px -5px 9px rgba(4, 10, 18, 0.3), 0 8px 18px rgba(0, 0, 0, 0.2);
+        }
+
+        .volume-panel {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 48px;
+            padding: 10px 14px;
+            border-radius: 18px;
+        }
+
+        .volume-icon {
+            flex: 0 0 18px;
+            width: 18px;
+            height: 18px;
+            fill: var(--ui-accent-bright);
+            filter: drop-shadow(0 0 5px rgba(var(--background-accent-bright), 0.3));
+        }
+
+        .volume-slider {
+            flex: 1;
+            min-width: 0;
+            height: 5px;
+            accent-color: var(--ui-accent-bright);
+            cursor: pointer;
+        }
+
+        .volume-value {
+            min-width: 31px;
+            color: var(--text-secondary);
+            font-size: 10px;
+            text-align: right;
         }
 
         #player-container {

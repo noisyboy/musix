@@ -15,7 +15,14 @@
 </head>
 <body>
 
+    <main class="player-shell">
     <div class="glass-card" id="main-card">
+        <section class="clock-panel" aria-label="Current time">
+            <span class="clock-label">LOCAL TIME</span>
+            <time id="live-clock" class="live-clock">00:00:00</time>
+            <span id="live-date" class="live-date">Loading date</span>
+        </section>
+
         <!-- 3-Slide Swipeable Viewport -->
         <div class="carousel-viewport" id="carousel">
             
@@ -115,6 +122,15 @@
             </button>
         </div>
     </div>
+
+    <section class="volume-panel" aria-label="Volume control">
+        <svg class="volume-icon" viewBox="0 0 24 24" aria-hidden="true">
+            <path d="M4 9v6h4l5 4V5L8 9H4zm12.5 3a4.5 4.5 0 0 0-2.5-4.03v8.06A4.5 4.5 0 0 0 16.5 12zm0-8.5v2.07A7 7 0 0 1 16.5 18.43V20.5c3.15-1.08 5.5-4.08 5.5-7.5s-2.35-6.42-5.5-7.5z"/>
+        </svg>
+        <input id="volume-slider" class="volume-slider" type="range" min="0" max="100" value="70" aria-label="Volume" aria-valuemin="0" aria-valuemax="100" aria-valuenow="70">
+        <output id="volume-value" class="volume-value" for="volume-slider">70%</output>
+    </section>
+    </main>
 
     <div id="player-container"></div>
 

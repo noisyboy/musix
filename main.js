@@ -54,6 +54,7 @@ let loopMode = 0; // 0 = Off, 1 = Loop Playlist, 2 = Loop Single
 let progressInterval;
 let currentSource = 'PLJkOl8HwYL9E'; // Default playlist ID or video array
 let lastFetchedTitle = "";
+let clockTimer;
 
 // Parsed synced lyrics cache: [{ time: seconds, text: string }]
 let syncedLyrics = [];
@@ -130,23 +131,104 @@ const WEATHER_BACKGROUNDS = {
     ]
 };
 
+const WEATHER_SEARCH_TERMS = {
+    clear: 'sunny landscape nature', cloudy: 'cloudy sky landscape', fog: 'fog mist landscape',
+    rain: 'rainy landscape', snow: 'snowy landscape', storm: 'thunderstorm landscape'
+};
+const WEATHER_IMAGE_CACHE_KEY = 'cadmium-weather-images-v1';
+let weatherBackgroundLayer;
+let weatherBackgroundScene = '';
+let weatherImageRequestId = 0;
+const weatherUsedImages = {};
+const weatherNextPages = {};
+const weatherLoadingScenes = new Set();
 let weatherBackgroundTimer;
 let lastWeatherBackground = '';
 
+function getWeatherImageCache() {
+    try { return JSON.parse(localStorage.getItem(WEATHER_IMAGE_CACHE_KEY) || '{}'); }
+    catch (error) { return {}; }
+}
+
+function saveWeatherImageCache(cache) {
+    try { localStorage.setItem(WEATHER_IMAGE_CACHE_KEY, JSON.stringify(cache)); }
+    catch (error) { /* The fallback pool remains available. */ }
+}
+
+function getWeatherImage(scene) {
+    const fallbacks = WEATHER_BACKGROUNDS[scene] || WEATHER_BACKGROUNDS.cloudy;
+    const cachedImages = getWeatherImageCache()[scene] || [];
+    const images = [...new Set([...cachedImages, ...fallbacks])];
+    const usedImages = weatherUsedImages[scene] || [];
+    let availableImages = images.filter(image => !usedImages.includes(image) && image !== lastWeatherBackground);
+    if (!availableImages.length) {
+        weatherUsedImages[scene] = lastWeatherBackground ? [lastWeatherBackground] : [];
+        availableImages = images.filter(image => image !== lastWeatherBackground);
+        loadWeatherImages(scene);
+    }
+    const image = availableImages[Math.floor(Math.random() * availableImages.length)];
+    weatherUsedImages[scene] = [...(weatherUsedImages[scene] || []), image];
+    return image;
+}
+
+function getWeatherOverlay(scene) {
+    const overlays = {
+        clear: 'linear-gradient(135deg, rgba(14, 28, 30, 0.42), rgba(12, 18, 22, 0.28))',
+        cloudy: 'linear-gradient(135deg, rgba(13, 19, 23, 0.62), rgba(18, 25, 29, 0.44))',
+        fog: 'linear-gradient(135deg, rgba(24, 34, 35, 0.52), rgba(46, 51, 49, 0.34))',
+        rain: 'linear-gradient(135deg, rgba(4, 12, 15, 0.7), rgba(8, 14, 19, 0.48))',
+        snow: 'linear-gradient(135deg, rgba(22, 32, 37, 0.48), rgba(49, 58, 62, 0.3))',
+        storm: 'linear-gradient(135deg, rgba(4, 12, 15, 0.7), rgba(8, 14, 19, 0.48))'
+    };
+    return overlays[scene] || overlays.cloudy;
+}
+
+function applyWeatherBackground(scene, image) {
+    if (!weatherBackgroundLayer) {
+        weatherBackgroundLayer = document.createElement('div');
+        weatherBackgroundLayer.className = 'weather-background-layer';
+        weatherBackgroundLayer.setAttribute('aria-hidden', 'true');
+        document.body.appendChild(weatherBackgroundLayer);
+    }
+    weatherBackgroundLayer.style.backgroundImage = `${getWeatherOverlay(scene)}, url("${image}")`;
+    weatherBackgroundLayer.classList.remove('weather-background-reveal');
+    void weatherBackgroundLayer.offsetWidth;
+    weatherBackgroundLayer.classList.add('weather-background-reveal');
+}
+
 function rotateWeatherBackground(scene) {
-    const images = WEATHER_BACKGROUNDS[scene] || WEATHER_BACKGROUNDS.cloudy;
-    const availableImages = images.filter(image => image !== lastWeatherBackground);
-    lastWeatherBackground = availableImages[Math.floor(Math.random() * availableImages.length)];
-    document.body.style.setProperty('--weather-image', `url("${lastWeatherBackground}")`);
-    document.body.classList.remove('weather-background-transition');
-    requestAnimationFrame(() => {
-        document.body.classList.add('weather-background-transition');
-    });
+    lastWeatherBackground = getWeatherImage(scene);
+    applyWeatherBackground(scene, lastWeatherBackground);
+}
+
+async function loadWeatherImages(scene) {
+    if (weatherLoadingScenes.has(scene)) return;
+    weatherLoadingScenes.add(scene);
+    const requestId = ++weatherImageRequestId;
+    try {
+        const query = WEATHER_SEARCH_TERMS[scene] || WEATHER_SEARCH_TERMS.cloudy;
+        const page = weatherNextPages[scene] || 1;
+        const response = await fetch(`https://api.openverse.org/v1/images/?q=${encodeURIComponent(query)}&page_size=30&page=${page}`);
+        if (!response.ok) throw new Error(`Openverse request failed: ${response.status}`);
+        const data = await response.json();
+        const images = (data.results || []).map(result => result.thumbnail || result.url).filter(Boolean);
+        weatherNextPages[scene] = page + 1;
+        const cache = getWeatherImageCache();
+        cache[scene] = [...new Set([...(cache[scene] || []), ...images])].slice(0, 120);
+        saveWeatherImageCache(cache);
+        if (requestId === weatherImageRequestId && weatherBackgroundScene === scene) rotateWeatherBackground(scene);
+    } catch (error) {
+        console.warn(`Openverse background images unavailable for ${scene}:`, error);
+    } finally {
+        weatherLoadingScenes.delete(scene);
+    }
 }
 
 function startWeatherBackgroundRotation(scene) {
     clearInterval(weatherBackgroundTimer);
+    weatherBackgroundScene = scene;
     rotateWeatherBackground(scene);
+    loadWeatherImages(scene);
     weatherBackgroundTimer = setInterval(() => rotateWeatherBackground(scene), 5 * 60 * 1000);
 }
 
@@ -372,6 +454,12 @@ window.addEventListener('DOMContentLoaded', () => {
     updateWeatherBackground();
     renderCustomPlaylists();
     restoreHiddenDefaults();
+    setPlayerVolume(Number(localStorage.getItem('cadmium-volume') || 70));
+    updateClock();
+    clockTimer = setInterval(updateClock, 1000);
+
+    const volumeSlider = document.getElementById('volume-slider');
+    if (volumeSlider) volumeSlider.addEventListener('input', event => setPlayerVolume(event.target.value));
 });
 
 // Carousel Indicator Dots Tracking
@@ -434,6 +522,7 @@ let playerVars = {
 
 function onPlayerReady(event) {
     resetCarouselToCenter(false);
+    setPlayerVolume(Number(localStorage.getItem('cadmium-volume') || 70));
     if (isShuffleOn && player.setShuffle) player.setShuffle(true);
     if (loopMode === 1 && player.setLoop) player.setLoop(true);
 }
@@ -627,6 +716,30 @@ function togglePlayPause() {
     } else {
         player.playVideo();
     }
+}
+
+function setPlayerVolume(value) {
+    const volume = Math.max(0, Math.min(100, Number(value) || 0));
+    const slider = document.getElementById('volume-slider');
+    const output = document.getElementById('volume-value');
+    if (slider) {
+        slider.value = String(volume);
+        slider.setAttribute('aria-valuenow', String(volume));
+    }
+    if (output) output.textContent = `${volume}%`;
+    localStorage.setItem('cadmium-volume', String(volume));
+    if (player && player.setVolume) player.setVolume(volume);
+}
+
+function updateClock() {
+    const now = new Date();
+    const clock = document.getElementById('live-clock');
+    const date = document.getElementById('live-date');
+    if (clock) {
+        clock.textContent = now.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false });
+        clock.dateTime = now.toISOString();
+    }
+    if (date) date.textContent = now.toLocaleDateString([], { weekday: 'short', month: 'short', day: 'numeric' });
 }
 
 function toggleShuffle() {
